@@ -1,0 +1,76 @@
+# Design Document: Каталог персонажів (Character Catalog)
+
+## 1. Архітектура шару бізнес-логіки (Core Layer)
+
+Бізнес-логіка додатку «Каталог персонажів» спроєктована відповідно до тришарової архітектури. Це забезпечує повну ізоляцію ядра системи (`CORE`) від шару представлення (`GUI`/`CLI`) та шару отримання даних (`DATA`).
+
+### Використані патерни та класи
+
+1. **Domain Model (`Character`, `SkillTalent`):** класи предметної області, які інкапсулюють властивості персонажа за допомогою приватних полів (`#`) та надають методи для роботи з бізнес-правилами (перевірка рідкості `isFiveStar()`, форматування рейтингу `getRarityStars()`).
+2. **Factory (`CharacterFactory`):** інкапсулює логіку парсингу вхідного JSON із зовнішнього API (`https://jmp.blue`), проводить нормалізацію даних (очищення формату дати народження, генерація посилань на медіаресурси) та підстановку значень за замовчуванням.
+3. **Mapper / ViewModel (`CharacterViewMapper`):** перетворює доменні сутності на плоскі об'єкти (`CardViewModel` та `DetailViewModel`), оптимізовані для рендерингу в компоненті графічного інтерфейсу (включаючи мапінг кольорових тем стихій).
+4. **Service & Dependency Injection (`CharacterCatalogService`):** центральний фасад бізнес-логіки, який реалізує кешування завантажених моделей, фільтрацію (за елементом, типом зброї, рідкістю, пошуковим запитом) та сортування. Клас не залежить від конкретної реалізації мережевих запитів, що дозволяє підключати як реальний `GenshinApiClient`, так і тестову заглушку `MockGenshinApiClient`.
+
+## 2. Діаграма класів (UML)
+
+```mermaid
+classDiagram
+    class CharacterCatalogService {
+        -apiClient: Object
+        -characterCache: Map
+        +loadAllCharacters() Promise~Character[]~
+        +getCharacterEntity(id: string) Promise~Character~
+        +getCatalogCards(filters: Object) Promise~Object[]~
+        +getCharacterDetails(id: string) Promise~Object~
+    }
+
+    class CharacterFactory {
+        +createFromJson(id: string, rawJson: Object, baseUrl: string)\$ Character
+        -formatBirthday(rawDate: string)\$ string
+    }
+
+    class CharacterViewMapper {
+        -visionColorMap: Object\(+toCardViewModel(character: Character)\) Object
+        +toDetailViewModel(character: Character)\$ Object
+    }
+
+    class Character {
+        -id: string
+        -name: string
+        -vision: string
+        -weapon: string
+        -rarity: number
+        -skillTalents: SkillTalent[]
+        +isFiveStar() boolean
+        +getRarityStars() string
+    }
+
+    class SkillTalent {
+        -name: string
+        -unlock: string
+        -description: string
+        -type: string
+    }
+
+    class GenshinApiClient {
+        -baseUrl: string
+        +fetchCharacterIds() Promise~string[]~
+        +fetchCharacterById(id: string) Promise~Object~
+    }
+
+    class MockGenshinApiClient {
+        -baseUrl: string
+        -mockDatabase: Object
+        +fetchCharacterIds() Promise~string[]~
+        +fetchCharacterById(id: string) Promise~Object~
+    }
+
+    CharacterCatalogService --> GenshinApiClient : uses (DI)
+    CharacterCatalogService ..> MockGenshinApiClient : uses (Stub)
+    CharacterCatalogService --> CharacterFactory : parses via
+    CharacterCatalogService --> CharacterViewMapper : maps via
+    CharacterCatalogService o-- Character : caches
+    Character *-- SkillTalent : contains
+    CharacterFactory ..> Character : creates
+    CharacterViewMapper ..> Character : reads
+```
