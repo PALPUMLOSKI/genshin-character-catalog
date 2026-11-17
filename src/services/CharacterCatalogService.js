@@ -3,21 +3,24 @@ import { CharacterViewMapper } from "../mappers/CharacterViewMapper.js";
 
 /**
  * Core Business Logic Layer service.
- * Orchestrates data retrieval, domain object creation, caching, filtering, and UI mapping.
- * Decoupled from concrete HTTP impementations via Dependency Injection.
+ * Orchestrates data retrieval, domain object creation, in-memory caching,
+ * persistent image buffering, filtering, and UI mapping.
  */
 export class CharacterCatalogService {
     #apiClient;
+    #imageCacheRepository;
     #characterCache;
 
     /**
      * @param {Object} apiClient - Must implement fetchCharacterIds() and fetchCharacterById(id).
+     * @param {Object} [imageCacheRepository] - Optional Persistence Layer repository for image buffering.
      */
-    constructor(apiClient) {
+    constructor(apiClient, imageCacheRepository = null) {
         if(!apiClient) {
             throw new Error('CharacterCatalogService requires an API client instance.');
         }
         this.#apiClient = apiClient;
+        this.#imageCacheRepository = imageCacheRepository;
         this.#characterCache = new Map();
     }
 
@@ -32,7 +35,7 @@ export class CharacterCatalogService {
     }
 
     /**
-     * Retrieves a single Character domain entity (uses cache if avaible).
+     * Retrieves a single Character domain entity (uses memory cache if avaible).
      * @param {string} id
      * @returns {Promise<import('../domain/Character.js').Character>}
      */
@@ -55,12 +58,35 @@ export class CharacterCatalogService {
     }
 
     /**
+     * Buffers a character's portrait image on local disk via Persistance Layer
+     * and returns the local along with cache status.
+     * @param {string} id
+     * @returns {Promise<{ characterId: string, localPath: string, source: string }>}
+     */
+    async bufferCharacterPortrait(id) {
+        if (!this.#imageCacheRepository) {
+            throw new Error('ImageCacheRepository is not condifured in CharacterCatalogService.');
+        }
+
+        const character = await this.getCharacterEntity(id);
+        const remotePortraitUrl = character.imageUrls.portrait;
+
+        const result = await this.#imageCacheRepository.getOrDownloadImage(
+            character.id,
+            remotePortraitUrl,
+            'portrait'
+        );
+
+        return {
+            characterId: character.id,
+            localPath: result.filePath,
+            source: result.source
+        };
+    }
+
+    /**
      * Returns UI-ready card ViewModels with optional filtering and sorting.
      * @param {Object} filters
-     * @param {string} [filters.vision] - Filter by element (e.g., 'Pyro').
-     * @param {string} [filters.weapon] - Filter by weapon (e.g., 'Polearm').
-     * @param {numbers} [filters.rarity] - Filter by rarity (4 or 5).
-     * @param {string} [filters.searchQuerry] - Case-insensitive name search.
      * @returns {Promise<Object[]>}
      */
     async getCatalogCards(filters = {}) {
@@ -89,7 +115,6 @@ export class CharacterCatalogService {
       return true;
     });
 
-        // Sort by rarity descending, then alphabetically by name
         filtered.sort((a, b) => {
             if (b.rarity !== a.rarity) {
                 return b.rarity - a.rarity;
@@ -101,12 +126,21 @@ export class CharacterCatalogService {
     }
 
     /**
-     * Returns a detao;ed UI ViewModel for a specific character.
+     * Returns a detailed UI ViewModel for a specific character,
+     * automatically attaching the locally buffered portrait path if avaible.
      * @param {string} id
      * @returns {Promise<Object>}
      */
     async getCharacterDetails(id) {
         const character = await this.getCharacterEntity(id);
-        return CharacterViewMapper.toDetailViewModel(character);
+        const viewModel = CharacterViewMapper.toDetailViewModel(character);
+
+        if (this.#imageCacheRepository) {
+            const buffered = await this.bufferCharacterPortrait(id);
+            viewModel.localPortraitPath = buffered.localPath;
+            viewModel.imageSource = buffered.source;
+        }
+
+        return viewModel;
     }
 }

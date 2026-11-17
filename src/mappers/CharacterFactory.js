@@ -30,6 +30,7 @@ export class CharacterFactory {
             portrait: `${baseUrl}/characters/${normalizedId}/portrait`
         };
 
+
         return new Character({
             id: normalizedId,
             name: rawJson.name,

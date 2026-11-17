@@ -1,31 +1,39 @@
 import { GenshinApiClient } from "./src/infrastructure/GenshinApiClient.js";
 import { MockGenshinApiClient } from "./src/infrastructure/MockGenshinApiClient.js";
+import { LocalImageCacheRepository } from "./src/infrastructure/LocalImageCacheRepository.js";
 import { CharacterCatalogService } from "./src/services/CharacterCatalogService.js";
 
 /**
  * Demonstration entry point acting as a temporart Presentation Layer (CLI).
+ * Demonstrates both Business Logic (CORE) and Persistent Image Buffering (DATA)
  */
 async function main() {
-    // Switch between real API and Mock stub easily due to Dependency Injection
     const useMock = true;
     const apiClient = useMock ? new MockGenshinApiClient() : new GenshinApiClient();
+    const imageCacheRepo = new LocalImageCacheRepository();
 
-    const catalogService = new CharacterCatalogService(apiClient);
+    const catalogService = new CharacterCatalogService(apiClient, imageCacheRepo);
 
     try {
-        console.log('--- Fetching and parsing characters from API ---');
-        // Preload a few characters or Load all
-        await catalogService.getCharacterEntity('hu-tao');
-        await catalogService.getCharacterEntity('bennett');
-        await catalogService.getCharacterEntity('kaedehara-kazuha');
+        console.log('--- 1. Initializing Persistance Layer (Image Buffering) ---');
+        console.log(`Cache Directory: ${imageCacheRepo.cacheDir}\n`);
 
-        console.log('\n--- 1. UI Card ViewModels (Filtered by Vision: Pyro) ---');
-        const pyroCards = await catalogService.getCatalogCards({ vision: 'Pyro' });
-        console.table(pyroCards);
+        // Fisrt request: downloads and writes portrait image to local disk
+        const firstFetch = await catalogService.bufferCharacterPortrait('hu-tao');
+        console.log('Fisrt request (Hu Tao portrait):', firstFetch);
 
-        console.log('\n--- 2. UI Detail ViewModel (Hu Tao) ---');
+        // Second request: reads directly from local disk without hitting network
+        const secondFetch = await catalogService.bufferCharacterPortrait('hu-tao');
+        console.log('Second request (Hu Tao portrait):', secondFetch);
+
+        // Buffer another character portrait
+        const kazuhaFetch = await catalogService.bufferCharacterPortrait('kaedehara-kazuha');
+        console.log('Fisrt request (Kazuha portrait):', kazuhaFetch);
+
+        console.log('\n--- 2. UI Detail ViewModel with Local Buffered Portrait ---');
         const huTaoDetails = await catalogService.getCharacterDetails('hu-tao');
         console.dir(huTaoDetails, { depth: null });
+        
     } catch (error) {
         console.error('Application Error:', error.message);
     }
