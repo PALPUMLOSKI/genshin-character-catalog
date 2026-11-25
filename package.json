@@ -6,10 +6,23 @@
     "main": "server.js",
     "scripts": {
         "start": "node index.js",
-        "server": "node server.js"
+        "server": "node server.js",
+        "build:client": "npm --prefix client install && npm --prefix client run build",
+        "bundle:server": "esbuild server.js --bundle --platform=node --target=node20 --format=cjs --outfile=build/server.cjs",
+        "package:exe": "pkg build/server.cjs --config package.json --targets node20-win-x64 --output release/genshin-character-catalog.exe",
+        "build": "npm run build:client && npm run bundle:server && npm run package:exe"
+    },
+    "pkg": {
+        "assets": [
+            "client/dist/**/*"
+        ]
     },
     "dependencies": {
         "cors": "^2.8.5",
         "express": "5.1.0"
+    },
+    "devDependencies": {
+        "@yao-pkg/pkg": "^5.16.1",
+        "esbuild": "^0.24.2"
     }
 }

@@ -3,7 +3,8 @@ import { CharacterCard } from "./components/CharacterCard";
 import { CharacterModal } from "./components/CharacterModal";
 import "./App.css";
 
-const API_BASE_URL = 'http://localhost:3001/api';
+// Use explicit localhost URL in development (Debug) mode, and relative in production (Release) build
+const API_BASE_URL = import.meta.env.DEV ? 'http://localhost:3001/api' : '/api';
 
 /**
  * Root Presentation Layer (GUI) container.

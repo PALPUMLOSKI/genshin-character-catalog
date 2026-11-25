@@ -1,17 +1,25 @@
-import express from 'express';
-import cors from 'cors';
-import { GenshinApiClient } from './src/infrastructure/GenshinApiClient.js';
-import { MockGenshinApiClient } from './src/infrastructure/MockGenshinApiClient.js';
-import { LocalImageCacheRepository } from './src/infrastructure/LocalImageCacheRepository.js';
-import { CharacterCatalogService } from './src/services/CharacterCatalogService.js';
+import express from "express";
+import cors from "cors";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { exec } from "node:child_process";
+import { GenshinApiClient } from "./src/infrastructure/GenshinApiClient.js";
+import { MockGenshinApiClient } from "./src/infrastructure/MockGenshinApiClient.js";
+import { LocalImageCacheRepository } from "./src/infrastructure/LocalImageCacheRepository.js";
+import { CharacterCatalogService } from "./src/services/CharacterCatalogService.js"
+
+// Resolve root directory sagely in both ES Module (Debug) and bundled Common (Release) modes
+const rootDir = process.pkg
+    ? path.resolve(__dirname, '..')
+    : path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
 
-// Request logger: prints every incoming request to the terminal
+// Request Lagger: every incoming request to the terminal
 app.use((req, res, next) => {
     console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
     next();
@@ -22,7 +30,12 @@ const apiClient = useMock ? new MockGenshinApiClient() : new GenshinApiClient();
 const imageCacheRepo = new LocalImageCacheRepository();
 const catalogService = new CharacterCatalogService(apiClient, imageCacheRepo);
 
-app.use('/cached-images', express.static(imageCacheRepo.cacheDir));
+// Serve locally buffered character portraits
+app.use(`/cached-images`, express.static(imageCacheRepo.cacheDir));
+
+// Serve compiled React frontend static files (Release build)
+const clientDistPath = path.join(rootDir, 'client', 'dist');
+app.use(express.static(clientDistPath));
 
 app.get('/api/characters', async (req, res) => {
     try {
@@ -39,10 +52,10 @@ app.get('/api/characters', async (req, res) => {
             cards.map(async (card) => {
                 try {
                     const buffered = await catalogService.bufferCharacterPortrait(card.id);
-                    const fileName = buffered.localPath.split(/[\\/]/).pop();
+                    const filename = buffered.localPath.split(/[\\/]/).pop();
                     return {
                         ...card,
-                        bufferedImageUrl: `http://localhost:${PORT}/cached-images/${fileName}`,
+                        bufferedImageUrl: `/cached-images/${filename}`,
                         imageSource: buffered.source
                     };
                 } catch {
@@ -56,7 +69,7 @@ app.get('/api/characters', async (req, res) => {
         );
 
         res.json(enrichedCards);
-    } catch (error) {
+    } catch(error) {
         console.error('ERROR in GET /api/characters:', error);
         res.status(500).json({ error: error.message });
     }
@@ -67,8 +80,8 @@ app.get('/api/characters/:id', async (req, res) => {
         const details = await catalogService.getCharacterDetails(req.params.id);
 
         if (details.localPortraitPath) {
-            const fileName = details.localPortraitPath.split(/[\\/]/).pop();
-            details.bufferedPortraitUrl = `http://localhost:${PORT}/cached-images/${fileName}`;
+            const filename = details.localPortraitPath.split(/[\\/]/).pop();
+            details.bufferedPortraitUrl = `/cached-images/${filename}`;
         }
 
         res.json(details);
@@ -78,6 +91,39 @@ app.get('/api/characters/:id', async (req, res) => {
     }
 });
 
+// Fallback route to serve React SPA index.html for any non-API routes
+app.get('/{*splat}', (req, res) => {
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+});
+
+/**
+ * Automatically opens the default web browser on the user's OS.
+ * @param {string} url
+ */
+function openBrowser(url) {
+    const command =
+        process.platform === 'win32'
+        ? `start "" "${url}"`
+        : process.platform === 'darwin'
+        ? `open "${url}"`
+        : `xdg-open "${url}"`;
+
+    exec(command, (err) => {
+        if (err) {
+            console.log(`Please open your browser manually at: ${url}`);
+        }
+    });
+}
+
 app.listen(PORT, () => {
-    console.log(`Character Catalog Web-API running on http://localhost:${PORT}`);
+    const appUrl = `http://localhost:${PORT}`;
+    console.log(`====================================================`);
+    console.log(`Genshin Character Catalog is running at: ${appUrl}`);
+    console.log(`Press Ctrl+C in this window to stop the application.`);
+    console.log(`====================================================`);
+
+    // Automatically open browser in production/packaged mode
+    if (process.env.NODE_ENV === 'production' || process.pkg) {
+        openBrowser(appUrl);
+    }
 });
